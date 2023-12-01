@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json.schemastore.org/tsconfig",
+    "display": "Node 18",
+    "_version": "18.2.0",
+    "compilerOptions": {
+        "module": "commonjs",
+        "noImplicitAny": false,
+        "removeComments": true,
+        "preserveConstEnums": true,
+        "sourceMap": true,
+        "outDir": "dist",
+        "esModuleInterop": true,
+        "strict": true,
+        "target": "es2022"
+      },
+      "lib": [
+        "es2022"
+      ],
+    "include": ["./**/*"],
+    "exclude": ["**/*.spec.ts"]
+}
