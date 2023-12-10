@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import {init, pool as db} from './classes/db';
 import { router } from './controllers/auth';
+import path from 'node:path';
 
 // TODO: Expand logger to include capacity for file called from, and additional levels of logging
 const mainTransport = new winston.transports.Console({
@@ -33,7 +34,8 @@ const corsOpts = {
 
 app.use(cors(corsOpts));
 app.use(router);
-
+console.log(path.join(__dirname,"../public/assets/"))
+app.use("/assets",express.static(path.resolve(__dirname,"../public/assets")));
 app.get("/ping", (req:Express.Request, res:Express.Response) => {
     winston.info("Ping!")
     // TODO: Extend Express.Response eventually

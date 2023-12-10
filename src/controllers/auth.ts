@@ -4,6 +4,7 @@ import cors from 'cors';
 import { Router, json, urlencoded } from 'express';
 import winston from 'winston';
 import { pool as db } from '../classes/db';
+import path from 'node:path';
 
 const corsOpts = {
     origin: "*"
@@ -14,7 +15,7 @@ router.use(cors(corsOpts));
 router.use(urlencoded({ extended: true }));
 router.use(json());
 
-interface ValidatedRequest extends Express.Request {
+export interface ValidatedRequest extends Express.Request {
     headers: Array<any>,
     validated?: Boolean,
     UID?: string,
@@ -33,7 +34,7 @@ async function isValidToken(token){
     return result?.rows[0].count === "0";
 }
 
-async function isAuthorized(req: ValidatedRequest, res, next) {
+export async function isAuthorized(req: ValidatedRequest, res, next) {
     const token = req.headers["x-access-token"] || null;
     const refresh = req.headers["x-refresh-token"] || null;
     if (!token || token === "" || token === null) {
@@ -77,7 +78,7 @@ async function isAuthorized(req: ValidatedRequest, res, next) {
                     console.log(decode);
                     if (decode) {
                         const username = decode.username;
-                        const result = await db.query(`SELECT * FROM users JOIN factions ON users.faction_id=factions.faction_id WHERE username='${username}';`);
+                        const result = await db.query(`SELECT * FROM users JOIN factions ON users.faction_id=factions.faction_id WHERE username=$1;`, [username]);
                         req.validated = true;
                         const { id, email, colony_name, faction_name } = result.rows[0];
                         req.token = jwt.sign(
@@ -140,7 +141,7 @@ router.post("/login", async (req, res) => {
     if (!(email && password)) {
         return res.status(400).send({ result: "FAIL", msg: "Both fields are required" });
     }
-    const result = await db.query(`SELECT * FROM users JOIN factions ON users.faction_id=factions.faction_id WHERE email='${email}';`);
+    const result = await db.query(`SELECT * FROM users JOIN factions ON users.faction_id=factions.faction_id WHERE email=$1;`, [email]);
     if (result?.rows.length && (await bcrypt.compare(password, result.rows[0].password))) {
         const { username, colony_name, faction_name } = result.rows[0];
         const token = jwt.sign(
@@ -180,25 +181,59 @@ router.post("/register", async (req, res) => {
             password,
             faction_id
         ) VALUES(
-            '${username}',
-            '${email}',
-            '${colony_name}',
+            $1,
+            $2,
+            $3,
             '${hashedPassword}',
             ${faction_id}
-        );`);
+        );`, [username, email,  colony_name]);
+        const newUser = await db.query(`SELECT * FROM users JOIN factions ON users.faction_id=factions.faction_id WHERE email=$1;`, [email]);
+        const {id, faction_name} = newUser.rows[0];
+        const token = jwt.sign(
+            { UID: id, email, colony_name, username, faction_name },
+            process.env.JWT_KEY,
+            { expiresIn: "10m" }
+        );
+        const refresh = jwt.sign(
+            { username, email: await bcrypt.hash(email, parseInt(process.env.PWD_HASH_COUNT as string)) },
+            process.env.JWT_KEY,
+            { expiresIn: "7d" }
+        )
         if (result?.rowCount === 1) {
             winston.info("User registered in database.");
         } else {
             return res.status(409).json({ result: "FAIL", msg: "There was an error creating your user. Please contact an administrator. CODE: PG-CRU-01" })
         }
-        return res.status(200).json({ result: "PASS", msg: "User created successfully. You may now log in." });
+        return res.status(200).json({ result: "PASS", msg: "User created successfully. You may now log in.", token, refresh });
     }
 });
 
 router.post("/user", isAuthorized, async (req: ValidatedRequest, res) => {
     if (req.validated) {
         const user = await db.query(`SELECT * FROM users JOIN factions ON users.faction_id=factions.faction_id WHERE id=${decode(req.headers["x-access-token"]).UID};`);
-        const { username, colony_name, faction_name } = user.rows[0];
-        res.status(200).json({ username: username, colony_name: colony_name, faction_name: faction_name })
+        console.log(user.rows[0])
+        const { username, colony_name, faction_name, faction_resource, ucr, currency } = user.rows[0];
+        res.status(200).json({ username: username, colony_name: colony_name, faction_name: faction_name, faction_resource, ucr, currency, superuser: (user.rows[0].id < 1000) })
     }
+})
+
+router.post("/factions", isAuthorized, async (req: ValidatedRequest, res) => {
+    if (req.validated) {
+        
+        res.status(200).json({ result: "PASS", msg:"NOMSG" })
+    }else{
+        const factions = await db.query(`SELECT * FROM factions;`);
+        const fac_users = await db.query(`SELECT factions.faction_name, COUNT(*) as count from users JOIN factions on users.faction_id=factions.faction_id GROUP BY faction_name;`)
+        res.status(200).json({ result: "FAIL", msg:{factions:factions.rows, users:fac_users.rows} })
+    }
+})
+
+router.get("/datastore", async (req, res) => {
+    const factions = await db.query(`SELECT * FROM factions;`);
+    res.status(200).json(factions.rows);
+})
+
+router.get("/update", isAuthorized, (req, res) => {
+    console.log(path.resolve(__dirname,"../app-debug.apk"))
+    res.download(path.resolve(__dirname,"../app-debug.apk"))
 })
