@@ -1,6 +1,8 @@
 import pg from 'pg';
 import winston from 'winston';
 import factions from '../models/factions';
+import { products } from '../models/shop';
+import { expeditions } from '../models/expeditions';
 
 export const pool = new pg.Pool({
     user: process.env.DB_USER,
@@ -52,12 +54,12 @@ export async function init() {
                     (START WITH 1001 INCREMENT BY 1),
                     "username" varchar(16) unique not null,
                     "email" varchar(90) unique not null,
-                    "colony_name" varchar(16) unique not null,
+                    "colony_name" varchar(30) unique not null,
                     "password" varchar(72) not null,
                     "faction_id" int,
-                    "faction_resource" int default 0,
-                    "ucr" int default 0,
-                    "currency" int default 0
+                    "faction_resource" int default 10,
+                    "ucr" int default 10,
+                    "currency" int default 10
                     );`).then(() => {
                     winston.info("Users Table Created");
                     return "PASS";
@@ -76,15 +78,18 @@ export async function init() {
                     "resource_description" text,
                     "ucr_name" varchar(30),
                     "ucr_description" text,
+                    "resources" int default 0,
+                    "currency" int default 0,
+                    "victor" bool default false,
                     PRIMARY KEY ("faction_id")
-                    );`).then(async() => {
-                        return await pool.query(`INSERT INTO factions(faction_name, faction_description, faction_short, resource_name, resource_description, ucr_name, ucr_description) VALUES
+                    );`).then(async () => {
+                    return await pool.query(`INSERT INTO factions(faction_name, faction_description, faction_short, resource_name, resource_description, ucr_name, ucr_description) VALUES
                         ('Aerun', $1, '${factions.Aerun.short}','${factions.Aerun.resource}',$2, '${factions.Aerun.ucr}', $3),
                         ('Enlightened', $4, '${factions.Enlightened.short}','${factions.Enlightened.resource}',$5, '${factions.Enlightened.ucr}', $6),
                         ('Regents', $7, '${factions.Regents.short}','${factions.Regents.resource}',$8, '${factions.Regents.ucr}', $9);`,
-                        [factions.Aerun.description,factions.Aerun.resource_description, factions.Aerun.ucr_description,
-                            factions.Enlightened.description, factions.Enlightened.resource_description, factions.Enlightened.ucr_description,
-                            factions.Regents.description, factions.Regents.resource_description, factions.Regents.ucr_description])
+                        [factions.Aerun.description, factions.Aerun.resource_description, factions.Aerun.ucr_description,
+                        factions.Enlightened.description, factions.Enlightened.resource_description, factions.Enlightened.ucr_description,
+                        factions.Regents.description, factions.Regents.resource_description, factions.Regents.ucr_description])
                         .catch((err) => {
                             winston.error(err);
                             return "FAIL"
@@ -98,17 +103,42 @@ export async function init() {
                 }),
                 structures: await pool.query(`
                 CREATE TABLE structures (
-                    "id" int,
+                    "id" serial,
                     "owner" int not null,
-                    "type" int not null,
+                    "structure_id" int not null,
                     "level" int not null,
-                    "productivity" int not null,
                     PRIMARY KEY ("id")
                     );`).then(() => {
                     winston.info("Structures Table Created");
                     return "PASS";
                 }, () => {
                     winston.info("Structures Table Failed to Create");
+                    return "FAIL";
+                }),
+                shop: await pool.query(`
+                CREATE TABLE shop (
+                    "id" serial,
+                    "faction_id" int not null,
+                    "type" int not null,
+                    "ucr" int not null,
+                    "water" int not null,
+                    "power" int not null,
+                    "gain" int not null,
+                    "name" varchar(90) not null,
+                    "description" text not null,
+                    PRIMARY KEY ("id")
+                    );`).then(async () => {
+                    winston.info("Shop Table Created");
+                    const insert = products.reduce((query, product) => `${query}(${product.faction}, ${product.type}, ${product.ucr}, ${product.water}, ${product.power}, ${product.gain}, '${product.name}', '${product.description}'),`, "");
+                    return await pool.query(`INSERT INTO shop (faction_id, type, ucr, water, power, gain, name, description) VALUES ${insert.substring(0, insert.length - 1)};`)
+                        .then(() => {
+                            return "PASS";
+                        }, (err) => {
+                            winston.error(err);
+                            return "FAIL";
+                        })
+                }, () => {
+                    winston.info("Shop Table Failed to Create");
                     return "FAIL";
                 }),
                 tokens: await pool.query(`
@@ -129,9 +159,16 @@ export async function init() {
                     "responses" text,
                     "requirements" varchar(30),
                     PRIMARY KEY ("id")
-                );`).then(() => {
+                );`).then(async () => {
                     winston.info("Expeditions Table Created");
-                    return "PASS";
+                    const insert = expeditions.reduce((query, expedition) => `${query}('${expedition.description.replaceAll("'", "''")}', '${JSON.stringify(expedition.options).replaceAll("'", "''")}','${JSON.stringify(expedition.requirements).replaceAll("'", "''")}'),`, "");
+                    return await pool.query(`INSERT INTO expeditions (event, responses, requirements) VALUES ${insert.substring(0, insert.length - 1)}`).then(() => {
+                        return "PASS";
+                    }, (err) => {
+                        winston.error(err);
+                        return "FAIL";
+                    })
+
                 }, () => {
                     winston.info("Expeditions Table Failed to Create");
                     return "FAIL";
